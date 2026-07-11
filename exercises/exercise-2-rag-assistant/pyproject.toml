@@ -1,0 +1,8 @@
+[project]
+name = "exercise-2-rag-assistant"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["shared"]
+
+[tool.uv.sources]
+shared = {workspace = true}

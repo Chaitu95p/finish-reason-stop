@@ -1,0 +1,37 @@
+[project]
+name = "finish-reason-stop"
+version = "0.1.0"
+description = "OpenAI Python SDK learning workspace — runnable exam-style scripts"
+requires-python = ">=3.12"
+dependencies = [
+  "openai>=1.90.0",
+  "pydantic>=2.0",
+  "httpx",
+]
+
+[tool.uv.workspace]
+members = [
+  "shared",
+  "modules/module-*",
+  "exercises/exercise-*",
+  "projects/project-*",
+]
+
+[dependency-groups]
+dev = [
+  "ruff",
+  "pytest",
+  "pytest-asyncio",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501", "E402", "F841"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["modules", "exercises", "projects"]
