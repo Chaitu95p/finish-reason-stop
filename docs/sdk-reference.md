@@ -47,13 +47,17 @@
 
 | Real API response | MockClient equivalent |
 |------------------|----------------------|
-| `response.choices[0].message.content` | `"Mock response for: {input[:30]}"` |
+| `response.choices[0].message.content` | `"Mock response content."` |
 | `response.choices[0].finish_reason` | `"stop"` (default) / `"tool_calls"` (when `tool_choice="required"`) |
-| `response.usage.prompt_tokens` | `10` |
-| `response.usage.completion_tokens` | `20` |
+| `response.usage.prompt_tokens` | `20` |
+| `response.usage.completion_tokens` | `30` |
+| `response.usage.prompt_tokens_details.cached_tokens` | `0` (first call) / `500` (repeated call with same prefix) |
+| `response.usage.completion_tokens_details.reasoning_tokens` | `0` (gpt-4o) / `150` (o1/o3/o4 models) |
 | `emb.data[0].embedding` | `[0.1] * 1536` |
-| `response.output_text` | `"Mock response for: {input[:30]}"` |
+| `response.output_text` | `"Mock output text."` |
 | `response.status` | `"completed"` |
-| `audio_response.text` | `"Mock transcription of audio"` |
+| `audio_response.text` | `"Mock transcription text."` |
 | `speech_response.content` | `b"mock_audio_bytes"` |
-| `image_response.data[0].url` | `"https://mock-image-url.example.com/..."` |
+| `image_response.data[0].url` | `"https://mock-image.example.com/img.png"` |
+| `client.models.list()[0].id` | `"gpt-4o"` (list of 4 models) |
+| `client.moderations.create().results[0].flagged` | `False` |

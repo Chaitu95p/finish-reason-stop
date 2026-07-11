@@ -49,25 +49,16 @@ async def show_async_model_info() -> None:
 
 
 async def demo_async_streaming() -> str:
-    """
-    Demonstrate async streaming.
-
-    Note: AsyncMockClient.chat.completions.create(stream=True) returns a
-    _MockStreamContextManager which uses synchronous __enter__/__iter__.
-    With the real AsyncOpenAI the stream would be async-iterable; with the
-    mock we use the sync context manager form. The pattern is otherwise identical.
-    """
+    """Demonstrate async streaming with async with / async for."""
     client = await get_async_client()
-    # Await the create() call — returns the stream context manager
     stream = await client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": "Count to five briefly."}],
         stream=True,
     )
     accumulated: list[str] = []
-    # Mock returns sync context manager — use 'with', not 'async with'
-    with stream:
-        for chunk in stream:
+    async with stream:
+        async for chunk in stream:
             content: str | None = chunk.choices[0].delta.content
             if content is not None:
                 accumulated.append(content)
@@ -144,14 +135,10 @@ async def main() -> None:
     print(sep)
 
     # DEMO 3: Async streaming
-    print("DEMO 3: Async streaming (sync context manager on mock)")
+    print("DEMO 3: Async streaming")
     print(sep)
     streamed = await demo_async_streaming()
     print(f"Streamed text: {streamed!r}")
-    print(
-        "Note: AsyncMockClient stream uses sync __iter__. "
-        "Real AsyncOpenAI would use 'async for chunk in stream:'."
-    )
 
     print(sep)
 
@@ -166,10 +153,10 @@ async def main() -> None:
     print(sep)
     print("KEY TAKEAWAYS:")
     print("  - Use get_async_client() (async def) — always await it to get the client")
-    print("  - Async API calls use 'await client.chat.completions.create(...)' ")
+    print("  - Async API calls use 'await client.chat.completions.create(...)'")
+    print("  - Streaming uses 'async with stream:' and 'async for chunk in stream:'")
     print("  - asyncio.run(main()) is the ONLY correct entry point; never nest it")
     print("  - Async clients allow concurrent I/O without threads — efficient for many requests")
-    print("  - The mock async client uses asyncio.sleep(0) — functionally immediate")
 
 
 if __name__ == "__main__":

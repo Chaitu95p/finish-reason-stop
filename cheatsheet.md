@@ -192,3 +192,91 @@ except openai.APIStatusError as e:     # catch-all for HTTP errors
 | dall-e-3 | $0.04-0.12/image | — | Image gen |
 
 Batch API = 50% discount on all supported models.
+
+## Reasoning Models
+
+```python
+# o1 / o3 / o3-mini / o4-mini — use max_completion_tokens, not max_tokens
+response = client.chat.completions.create(
+    model="o3",
+    messages=[{"role": "user", "content": "Solve this step by step: ..."}],
+    reasoning_effort="medium",   # "low" | "medium" | "high"
+    max_completion_tokens=2048,  # NOT max_tokens
+)
+
+# Reading reasoning token breakdown
+usage = response.usage
+reasoning = usage.completion_tokens_details.reasoning_tokens   # internal CoT cost
+visible  = usage.completion_tokens - reasoning                 # tokens in response
+
+# o1 ignores system messages — embed instructions in user message instead
+messages = [{"role": "user", "content": "You are a senior engineer.\n\nExplain X."}]
+# Or use developer role (o1 pro/mini):
+messages = [
+    {"role": "developer", "content": "You are a senior engineer."},
+    {"role": "user",      "content": "Explain X."},
+]
+```
+
+## Prompt Caching
+
+```python
+# Cached tokens are charged at 50% — requires stable prefix >= 1024 tokens
+response = client.chat.completions.create(model="gpt-4o", messages=messages)
+cached = response.usage.prompt_tokens_details.cached_tokens  # 0 on cold, >0 on warm
+
+# For streaming — add stream_options to get usage in the final chunk
+stream = client.chat.completions.create(
+    model="gpt-4o", messages=messages, stream=True,
+    stream_options={"include_usage": True},
+)
+# last chunk.usage.prompt_tokens_details.cached_tokens
+
+# Cache-friendly layout: stable content FIRST, variable content LAST
+messages = [
+    {"role": "system",  "content": LONG_STABLE_SYSTEM_PROMPT},  # 1024+ tokens
+    {"role": "user",    "content": STATIC_DOCS_CONTEXT},         # stable
+    {"role": "user",    "content": user_question},               # variable — last!
+]
+# Even one changed token in the prefix busts the cache entry
+```
+
+## Responses API Streaming
+
+```python
+# Event-based — dispatch on event.type, not finish_reason
+with client.responses.create(model="gpt-4o", input="Hello", stream=True) as stream:
+    for event in stream:
+        if event.type == "response.content_part.delta":
+            print(event.delta, end="", flush=True)   # incremental text
+        elif event.type == "response.completed":
+            full_text = event.output_text             # final assembled text
+            break
+
+# Key event types
+# response.created               — response started
+# response.output_item.added     — new output item (text or function_call)
+# response.content_part.delta    — incremental text delta
+# response.function_call_arguments.delta  — streaming tool args
+# response.function_call_arguments.done   — tool args complete → execute tool
+# response.completed             — full response done, output_text available
+```
+
+## Moderations
+
+```python
+result = client.moderations.create(input="Text to check for policy violations.")
+flagged = result.results[0].flagged          # bool — True if any category triggered
+
+# Per-category scores
+cats = result.results[0].categories
+cats.harassment           # bool
+cats.hate                 # bool
+cats.sexual               # bool
+cats.violence             # bool
+# (and 7 more sub-categories)
+
+# Usage pattern: gate before sending user input to the model
+if result.results[0].flagged:
+    raise ValueError("Input violates content policy")
+```

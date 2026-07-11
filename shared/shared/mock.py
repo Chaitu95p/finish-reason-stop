@@ -10,7 +10,7 @@ import asyncio
 import json
 import os
 import types
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,8 +25,25 @@ def is_mock() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Module-level state for prompt cache simulation
+# ---------------------------------------------------------------------------
+
+_prompt_cache: dict[str, int] = {}
+
+
+# ---------------------------------------------------------------------------
 # Response dataclasses — duck-typed equivalents of openai response objects
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class MockPromptTokensDetails:
+    cached_tokens: int = 0
+
+
+@dataclass
+class MockCompletionTokensDetails:
+    reasoning_tokens: int = 0
 
 
 @dataclass
@@ -34,6 +51,12 @@ class MockUsage:
     prompt_tokens: int = 20
     completion_tokens: int = 30
     total_tokens: int = 50
+    prompt_tokens_details: MockPromptTokensDetails = field(
+        default_factory=MockPromptTokensDetails
+    )
+    completion_tokens_details: MockCompletionTokensDetails = field(
+        default_factory=MockCompletionTokensDetails
+    )
 
 
 @dataclass
@@ -188,6 +211,7 @@ class MockBatch:
     completion_window: str = "24h"
     input_file_id: str = "file-mock001"
     output_file_id: str = "file-mock002"
+    error_file_id: str | None = None
     created_at: int = 1700000000
     object: str = "batch"
 
@@ -262,6 +286,66 @@ class MockFineTuningJob:
     created_at: int = 1700000000
 
 
+@dataclass
+class MockModel:
+    id: str = "gpt-4o"
+    created: int = 1699000000
+    owned_by: str = "openai"
+    object: str = "model"
+
+
+@dataclass
+class MockModerationCategories:
+    harassment: bool = False
+    harassment_threatening: bool = False
+    hate: bool = False
+    hate_threatening: bool = False
+    self_harm: bool = False
+    self_harm_instructions: bool = False
+    self_harm_intent: bool = False
+    sexual: bool = False
+    sexual_minors: bool = False
+    violence: bool = False
+    violence_graphic: bool = False
+
+
+@dataclass
+class MockModerationResult:
+    flagged: bool = False
+    categories: MockModerationCategories = field(
+        default_factory=MockModerationCategories
+    )
+
+
+@dataclass
+class MockModerationResponse:
+    results: list[MockModerationResult] = field(
+        default_factory=lambda: [MockModerationResult()]
+    )
+
+
+@dataclass
+class MockRealtimeSession:
+    id: str = "sess_mock_001"
+    model: str = "gpt-4o-realtime-preview"
+    modalities: list[str] = field(default_factory=lambda: ["text", "audio"])
+    status: str = "created"
+
+
+@dataclass
+class MockRealtimeEvent:
+    type: str = "session.created"
+    event_id: str = "evt_mock_001"
+
+
+@dataclass
+class MockResponseEvent:
+    type: str = "response.created"
+    event_id: str = "evt_mock_001"
+    delta: str = ""
+    output_text: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Namespace classes — mirror openai.OpenAI attribute hierarchy
 # ---------------------------------------------------------------------------
@@ -279,10 +363,11 @@ def _stream_chunks(text: str = "Mock streaming response.") -> Iterator[MockStrea
 
 
 class _MockStreamContextManager:
-    """Context manager returned when stream=True, yields MockStreamChunk objects."""
+    """Context manager returned when stream=True; works as both sync and async."""
 
     def __init__(self, text: str = "Mock streaming response.") -> None:
         self._text = text
+        self._chunks = list(_stream_chunks(text))
 
     def __enter__(self) -> _MockStreamContextManager:
         return self
@@ -291,10 +376,92 @@ class _MockStreamContextManager:
         pass
 
     def __iter__(self) -> Iterator[MockStreamChunk]:
-        yield from _stream_chunks(self._text)
+        yield from self._chunks
+
+    async def __aenter__(self) -> _MockStreamContextManager:
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        pass
+
+    def __aiter__(self) -> AsyncGenerator[MockStreamChunk, None]:
+        return self._async_gen()
+
+    async def _async_gen(self) -> AsyncGenerator[MockStreamChunk, None]:
+        for chunk in self._chunks:
+            yield chunk
 
     def get_final_completion(self) -> MockChatCompletion:
         return MockChatCompletion()
+
+
+class _MockResponsesStreamContextManager:
+    """Context manager for Responses API streaming; yields MockResponseEvent objects."""
+
+    _EVENTS = [
+        MockResponseEvent(type="response.created", event_id="evt_001"),
+        MockResponseEvent(
+            type="response.content_part.delta", event_id="evt_002", delta="Hello"
+        ),
+        MockResponseEvent(
+            type="response.content_part.delta", event_id="evt_003", delta=" world."
+        ),
+        MockResponseEvent(
+            type="response.completed",
+            event_id="evt_004",
+            output_text="Hello world.",
+        ),
+    ]
+
+    def __enter__(self) -> _MockResponsesStreamContextManager:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        pass
+
+    def __iter__(self) -> Iterator[MockResponseEvent]:
+        yield from self._EVENTS
+
+    async def __aenter__(self) -> _MockResponsesStreamContextManager:
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        pass
+
+    def __aiter__(self) -> AsyncGenerator[MockResponseEvent, None]:
+        return self._async_gen()
+
+    async def _async_gen(self) -> AsyncGenerator[MockResponseEvent, None]:
+        for evt in self._EVENTS:
+            yield evt
+
+
+def _is_reasoning_model(model: str) -> bool:
+    return model.startswith(("o1", "o3", "o4"))
+
+
+def _make_usage(
+    model: str = "gpt-4o",
+    messages: list[Any] | None = None,
+    cached_tokens: int | None = None,
+) -> MockUsage:
+    """Build MockUsage with reasoning and cache fields set appropriately."""
+    reasoning = 150 if _is_reasoning_model(model) else 0
+    if cached_tokens is None:
+        prompt_key = str(messages)[:200] if messages else ""
+        if prompt_key and prompt_key in _prompt_cache:
+            cached = 500
+        elif prompt_key:
+            _prompt_cache[prompt_key] = 1
+            cached = 0
+        else:
+            cached = 0
+    else:
+        cached = cached_tokens
+    return MockUsage(
+        prompt_tokens_details=MockPromptTokensDetails(cached_tokens=cached),
+        completion_tokens_details=MockCompletionTokensDetails(reasoning_tokens=reasoning),
+    )
 
 
 class _ChatCompletionsNamespace:
@@ -310,6 +477,7 @@ class _ChatCompletionsNamespace:
     ) -> MockChatCompletion | _MockStreamContextManager:
         if stream:
             return _MockStreamContextManager()
+        usage = _make_usage(model=model, messages=messages)
         if tools and tool_choice == "required":
             tool = tools[0]
             fn_name = tool.get("function", {}).get("name", "mock_function")
@@ -317,12 +485,18 @@ class _ChatCompletionsNamespace:
                 function=MockFunction(name=fn_name, arguments='{"mock_arg": "mock_value"}')
             )
             msg = MockMessage(content=None, tool_calls=[tool_call])
-            return MockChatCompletion(choices=[MockChoice(finish_reason="tool_calls", message=msg)])
+            return MockChatCompletion(
+                choices=[MockChoice(finish_reason="tool_calls", message=msg)],
+                model=model,
+                usage=usage,
+            )
         # Return content=None for json_object so scripts' `or json.dumps({...})` fallbacks trigger
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             msg = MockMessage(content=None)
-            return MockChatCompletion(choices=[MockChoice(message=msg)])
-        return MockChatCompletion()
+            return MockChatCompletion(
+                choices=[MockChoice(message=msg)], model=model, usage=usage
+            )
+        return MockChatCompletion(model=model, usage=usage)
 
     def parse(
         self,
@@ -372,8 +546,11 @@ class _ResponsesNamespace:
         previous_response_id: str | None = None,
         instructions: str | None = None,
         tool_choice: Any = "auto",
+        stream: bool = False,
         **kwargs: Any,
-    ) -> MockResponse:
+    ) -> MockResponse | _MockResponsesStreamContextManager:
+        if stream:
+            return _MockResponsesStreamContextManager()
         if tools and tool_choice == "required":
             tool = tools[0]
             fn_name = tool.get("name", "mock_function")
@@ -506,6 +683,14 @@ class _BatchesNamespace:
     def retrieve(self, batch_id: str, **kwargs: Any) -> MockBatch:
         return MockBatch(id=batch_id)
 
+    def retrieve_failed(self, batch_id: str, **kwargs: Any) -> MockBatch:
+        """Return a failed batch with error_file_id set."""
+        return MockBatch(
+            id=batch_id,
+            status="failed",
+            error_file_id="file-mock-error-001",
+        )
+
     def list(self, **kwargs: Any) -> Any:
         return types.SimpleNamespace(data=[MockBatch()])
 
@@ -634,11 +819,71 @@ class _FineTuningNamespace:
         self.jobs = _FineTuningJobsNamespace()
 
 
+class _ModelsNamespace:
+    _MODEL_IDS = ["gpt-4o", "gpt-4o-mini", "o3", "text-embedding-3-small"]
+
+    def list(self) -> list[MockModel]:
+        return [MockModel(id=m) for m in self._MODEL_IDS]
+
+    def retrieve(self, model_id: str) -> MockModel:
+        return MockModel(id=model_id)
+
+
+class _ModerationsNamespace:
+    def create(self, input: str = "", **kwargs: Any) -> MockModerationResponse:
+        return MockModerationResponse()
+
+
+class _RealtimeSessionsNamespace:
+    def create(
+        self,
+        model: str = "gpt-4o-realtime-preview",
+        **kwargs: Any,
+    ) -> MockRealtimeSession:
+        return MockRealtimeSession(model=model)
+
+
+class MockRealtimeConnection:
+    """Async context manager yielding mock realtime events."""
+
+    _EVENTS = [
+        MockRealtimeEvent(type="session.created", event_id="evt_001"),
+        MockRealtimeEvent(type="response.text.delta", event_id="evt_002"),
+        MockRealtimeEvent(type="response.text.done", event_id="evt_003"),
+        MockRealtimeEvent(type="session.closed", event_id="evt_004"),
+    ]
+
+    async def __aenter__(self) -> MockRealtimeConnection:
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        pass
+
+    def __aiter__(self) -> AsyncGenerator[MockRealtimeEvent, None]:
+        return self._async_gen()
+
+    async def _async_gen(self) -> AsyncGenerator[MockRealtimeEvent, None]:
+        for evt in self._EVENTS:
+            yield evt
+
+    def send(self, event: Any) -> None:
+        pass  # no-op in mock
+
+
+class _RealtimeNamespace:
+    def __init__(self) -> None:
+        self.sessions = _RealtimeSessionsNamespace()
+
+    def connect(self, **kwargs: Any) -> MockRealtimeConnection:
+        return MockRealtimeConnection()
+
+
 class _BetaNamespace:
     def __init__(self) -> None:
         self.chat = _BetaChatNamespace()
         self.assistants = _AssistantsNamespace()
         self.threads = _ThreadsNamespace()
+        self.realtime = _RealtimeNamespace()
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +904,8 @@ class MockClient:
         self.batches = _BatchesNamespace()
         self.vector_stores = _VectorStoresNamespace()
         self.fine_tuning = _FineTuningNamespace()
+        self.models = _ModelsNamespace()
+        self.moderations = _ModerationsNamespace()
         self.beta = _BetaNamespace()
 
 
@@ -694,7 +941,9 @@ class _AsyncChatNamespace:
 
 
 class _AsyncResponsesNamespace:
-    async def create(self, **kwargs: Any) -> MockResponse:
+    async def create(
+        self, **kwargs: Any
+    ) -> MockResponse | _MockResponsesStreamContextManager:
         await asyncio.sleep(0)
         return _ResponsesNamespace().create(**kwargs)
 
@@ -710,6 +959,7 @@ class _AsyncBetaNamespace:
         self.chat = _AsyncBetaChatNamespace()
         self.assistants = _AssistantsNamespace()
         self.threads = _ThreadsNamespace()
+        self.realtime = _RealtimeNamespace()
 
 
 class AsyncMockClient:
@@ -725,6 +975,8 @@ class AsyncMockClient:
         self.batches = _BatchesNamespace()
         self.vector_stores = _VectorStoresNamespace()
         self.fine_tuning = _FineTuningNamespace()
+        self.models = _ModelsNamespace()
+        self.moderations = _ModerationsNamespace()
         self.beta = _AsyncBetaNamespace()
 
 

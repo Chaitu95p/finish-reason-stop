@@ -1,6 +1,6 @@
 # finish-reason-stop
 
-A structured learning repository for the OpenAI Python SDK. Covers every major API surface through 70+ runnable scripts, 6 exercises, and 6 mini-projects. Every script runs without an API key via mock mode.
+A structured learning repository for the OpenAI Python SDK. Covers every major API surface through 90+ runnable scripts, 6 exercises, and 6 mini-projects. Every script runs without an API key via mock mode.
 
 ## Quickstart
 
@@ -22,7 +22,7 @@ OPENAI_API_KEY=sk-... uv run python modules/module-1/01_responses_api_basics.py
 | 1 | Responses API & Chat Completions | `responses.create()`, `chat.completions.create()` |
 | 2 | Function Calling & Tool Use | `tools=`, `finish_reason="tool_calls"` |
 | 3 | Structured Outputs & JSON Mode | `response_format`, Pydantic, `beta.chat.completions.parse()` |
-| 4 | Streaming & Async | `stream=True`, `AsyncOpenAI`, `asyncio.gather()` |
+| 4 | Streaming & Async (7 scripts) | `stream=True`, `AsyncOpenAI`, `asyncio.gather()`, Responses API streaming |
 | 5 | Embeddings & Semantic Search | `embeddings.create()`, cosine similarity, RAG |
 | 6 | Audio APIs | `audio.transcriptions.create()`, `audio.speech.create()` |
 | 7 | Images & Vision | `images.generate()`, vision content blocks |
@@ -30,7 +30,7 @@ OPENAI_API_KEY=sk-... uv run python modules/module-1/01_responses_api_basics.py
 | 9 | Batch API & Fine-Tuning | `batches.create()`, `fine_tuning.jobs.create()` |
 | 10 | Realtime API | WebSocket sessions, audio streaming |
 | 11 | Error Handling & Reliability | Error taxonomy, retry, circuit breaker |
-| 12 | Production, Testing & Security | Logging, cost, security, testing |
+| 12 | Production, Testing & Security (9 scripts) | Logging, cost, security, testing, reasoning models, prompt caching |
 
 ## Projects
 
@@ -60,7 +60,7 @@ OPENAI_API_KEY=sk-... uv run python modules/module-1/01_responses_api_basics.py
 ```
 finish-reason-stop/
 ├── shared/           # Shared utilities: MockClient, retry, tokens, logging
-├── modules/          # 12 learning modules, ~70 scripts
+├── modules/          # 12 learning modules, 90+ scripts
 ├── exercises/        # 6 synthesis exercises
 ├── projects/         # 6 mini-projects (end-to-end applications)
 ├── docs/             # Architecture, SDK reference, migration guide
